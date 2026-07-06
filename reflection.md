@@ -96,6 +96,12 @@ My initial UML design models a resource-constrained scheduling engine via a deco
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
+Yes. During implementation, I tightened the model in two ways so the design matched the scheduler’s real behavior more closely:
+
+1. **Explicit pet-task relationship:** I added an optional pet reference to each task and made the scheduler attach the current pet context when planning. This closes a gap in the original design, where the pet object was available to the engine but not meaningfully connected to the task objects being ranked.
+
+2. **Health-aware urgency scoring:** The original design treated urgency as a generic numeric property, but the implementation now uses pet health flags to boost medically sensitive tasks when a pet is under stress or needs monitoring. That change was important because a medication task for a pet in pain should be prioritized more aggressively than a routine feeding task, even if the base priority is lower.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
