@@ -10,6 +10,50 @@ from pawpal_system import (
 )
 
 
+def test_task_completion():
+    """Verify that calling mark_complete() mutates the task state to True."""
+    # 1. Arrange
+    task = FeedingTask(
+        task_id="t-comp-1",
+        title="Morning Kibble",
+        duration_minutes=15,
+        base_priority=5,
+        food_type="dry food",
+        amount_grams=150,
+        scheduled_time="08:00",
+    )
+
+    # 2. Act
+    assert task.is_completed is False, "Task should initialize as uncompleted."
+    task.mark_complete()
+
+    # 3. Assert
+    assert task.is_completed is True, "Calling mark_complete() must set is_completed to True."
+
+
+def test_task_addition_increments_count():
+    """Verify that appending a task to a Pet increases its internal itinerary collection count."""
+    # 1. Arrange
+    pet = Pet(name="Mochi", species="dog", age=3)
+    task = FeedingTask(
+        task_id="t-add-1",
+        title="Dinner feeding",
+        duration_minutes=15,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=220,
+        scheduled_time="19:00",
+    )
+
+    # 2. Act & Assert
+    assert len(pet.tasks) == 0, "Pet task collection should initialize empty."
+
+    pet.add_task(task)
+
+    assert len(pet.tasks) == 1, "Adding a task must increment the pet's task count by exactly 1."
+    assert pet.tasks[0].task_id == "t-add-1", "The stored task must match the appended instance."
+
+
 def test_task_cannot_be_instantiated_directly():
     with pytest.raises(TypeError):
         Task(task_id="t1", title="Generic", duration_minutes=10, base_priority=3)

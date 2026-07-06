@@ -77,6 +77,7 @@ class Task(ABC):
     scheduled_time: str = ""
 
     def __post_init__(self) -> None:
+        """Validate task creation parameters."""
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be greater than zero")
         if self.base_priority < 0:
@@ -119,6 +120,7 @@ class MedicationTask(Task):
     dosage_window: str = ""
 
     def calculate_base_urgency(self) -> float:
+        """Compute urgency for medication tasks."""
         return (self.base_priority * 4.0) - (self.duration_minutes * 0.25)
 
 
@@ -130,6 +132,7 @@ class FeedingTask(Task):
     amount_grams: int = 0
 
     def calculate_base_urgency(self) -> float:
+        """Compute urgency for feeding tasks."""
         return (self.base_priority * 3.0) - (self.duration_minutes * 0.2)
 
 
