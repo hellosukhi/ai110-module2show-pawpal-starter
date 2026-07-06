@@ -2,6 +2,10 @@ from datetime import time
 
 from pawpal_system import FeedingTask, MedicationTask, Owner, Pet, ScheduleItem, SchedulerEngine
 
+# tabulate is an optional presentation-only dependency. Importing it behind a guard
+# (tabulate = None on failure) lets the core CLI degrade to plain-text rows rather than
+# crash on a bare checkout — formatting is never allowed to become a hard runtime
+# requirement of the logic layer.
 try:
     from tabulate import tabulate
 except ImportError:  # pragma: no cover - fallback for environments without tabulate
@@ -87,7 +91,9 @@ def build_demo_schedule():
 
 
 def _task_icon(task: object) -> str:
-    """Return a user-friendly emoji for the task type."""
+    """Map a task's concrete subclass to its glyph; falls back to a neutral icon."""
+    # isinstance dispatch (not a dict keyed on type) so subclasses resolve correctly
+    # and an unknown/base task degrades to the generic marker instead of KeyError.
     if isinstance(task, MedicationTask):
         return "💊"
     if isinstance(task, FeedingTask):

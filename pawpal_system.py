@@ -1,4 +1,19 @@
-"""Core logic layer for the PawPal+ pet care scheduling app."""
+"""Core logic layer for the PawPal+ pet care scheduling app.
+
+Architectural boundaries enforced in this module:
+
+* Type-safe domain vocabulary. Species, cadence, and priority are modeled as
+  ``str``-backed ``Enum`` types (:class:`PetSpecies`, :class:`TaskFrequency`,
+  :class:`TaskPriority`) rather than free-form strings, so an invalid value
+  fails loudly at construction instead of silently corrupting a plan.
+* Acyclic object graph. Tasks reference their owning pet by a ``pet_name: str``
+  foreign key, never by a live :class:`Pet` reference. This keeps the graph a
+  tree (Owner -> Pet -> Task) so it can be JSON-serialized without cycles.
+* Native temporal primitives. Scheduling uses ``datetime.time`` internally, not
+  string comparison, so ordering and conflict math are true clock arithmetic.
+* Dependency-free persistence. Hydration rides on hand-rolled ``to_dict`` /
+  ``from_dict`` pairs so the on-disk schema is owned here, not by a third party.
+"""
 
 from __future__ import annotations
 
@@ -11,8 +26,14 @@ from enum import Enum
 from typing import Dict, List, Optional, Union
 
 
+# Design note (applies to PetSpecies, TaskFrequency, and TaskPriority):
+# These subclass ``str`` so members compare and serialize as their plain string
+# value, yet the closed membership set makes an out-of-domain value (a typo, a
+# stale payload) raise at the boundary via ``from_value`` instead of flowing
+# through the scheduler as a silent no-op. This is the single guardrail that
+# turns "magic string" state bugs into loud, locatable ValueErrors.
 class PetSpecies(str, Enum):
-    """Allowed pet species values for the scheduling domain."""
+    """Closed vocabulary of supported pet species; rejects unknown values at the boundary."""
 
     DOG = "dog"
     CAT = "cat"
@@ -73,6 +94,9 @@ class TaskPriority(str, Enum):
         raise ValueError(f"Unsupported task priority: {value}")
 
 
+# Health context is table-driven rather than branch-driven: mapping flag keywords to
+# severity tiers (and tiers to per-task-type boosts below) keeps the urgency policy as
+# editable data, so tuning care sensitivity never means touching scheduler control flow.
 _HEALTH_CONTEXT_FLAG_GROUPS = {
     "high": {"pain", "critical", "monitoring", "urgent", "injury", "sick"},
     "moderate": {"sensitive", "diet", "recovery"},
@@ -98,8 +122,13 @@ class Pet:
         self.species = PetSpecies.from_value(self.species)
 
     def add_task(self, task: "Task") -> None:
-        """Assign a care task directly to this pet's itinerary."""
+        """Attach a task to this pet and stamp the back-reference as a name key, not a live object."""
         if task not in self.tasks:
+            # Ownership is recorded as a string foreign key (task.pet_name = self.name)
+            # rather than a Task->Pet object pointer. That deliberately one-way link
+            # keeps the graph acyclic: Pet holds Tasks, Tasks hold only a name. Without
+            # it, to_dict() would recurse Pet -> Task -> Pet forever and json.dump would
+            # raise on the circular reference.
             task.pet_name = self.name
             self.tasks.append(task)
 
@@ -206,8 +235,12 @@ class Owner:
 
 @dataclass(frozen=True)
 class ScheduleItem:
-    """Immutable transport object for pet-task plan entries."""
+    """Immutable (pet, task) pairing that re-attaches pet context to a name-keyed task."""
 
+    # frozen=True: this is a read-only view stitched together for planning. Making it
+    # hashable/immutable prevents scheduler passes from mutating plan entries in place
+    # and re-pairs the live Pet with a Task that itself only stores pet_name — bridging
+    # the decoupled foreign key back to full context without the Task ever owning a Pet.
     pet: Pet
     task: "Task"
 
@@ -220,14 +253,23 @@ class Task(ABC):
     title: str
     duration_minutes: int
     base_priority: int
+    # Foreign key, not an object handle: a Task never holds a Pet reference, which
+    # is what keeps the Owner->Pet->Task graph a serializable, cycle-free tree.
     pet_name: Optional[str] = None
     is_completed: bool = False
     priority: Union[TaskPriority, str] = TaskPriority.MEDIUM
+    # scheduled_time is the wire/display form (HH:MM string); scheduled_time_value
+    # below is the derived native primitive used for all real temporal math. The
+    # string is the interface, the time object is the source of truth.
     scheduled_time: Optional[str] = None
     due_date: Optional[date] = None
     frequency: Union[TaskFrequency, str] = TaskFrequency.DAILY
     is_recurring: bool = False
     recurring_occurrences: int = 1
+    # Derived, not user-supplied (init=False): parsed once in __post_init__ so
+    # sorting and conflict detection compare datetime.time objects — true clock
+    # ordering — instead of lexicographic string compares that break across
+    # zero-padding and would make "9:00" sort after "10:00".
     scheduled_time_value: Optional[time] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -246,7 +288,13 @@ class Task(ABC):
             self.scheduled_time = self.scheduled_time_value.strftime("%H:%M")
 
     def to_dict(self) -> Dict[str, object]:
-        """Serialize the task into JSON-compatible primitives."""
+        """Flatten a task to JSON primitives, tagging its concrete subclass for later rehydration."""
+        # Hand-rolled (vs pickle / a serialization lib) so the on-disk schema is an
+        # explicit contract we own and can migrate. Enums are lowered to their .value
+        # and date to isoformat here; from_dict reverses each coercion. The "type"
+        # discriminator is the pivot that lets from_dict pick the right subclass —
+        # without it the flat dict could not distinguish a MedicationTask from a
+        # FeedingTask on the way back in.
         payload: Dict[str, object] = {
             "task_id": self.task_id,
             "title": self.title,
@@ -270,7 +318,11 @@ class Task(ABC):
 
     @classmethod
     def from_dict(cls, data: Dict[str, object]) -> "Task":
-        """Rehydrate a task from a serialized dictionary."""
+        """Reconstruct the correct Task subclass from a payload, restoring typed fields."""
+        # Dispatch on the "type" tag written by to_dict. Passing the raw string
+        # priority/frequency values straight into the constructors is intentional:
+        # each subclass's __post_init__ re-runs from_value, so hydration cannot
+        # produce an object in a state the constructor would have rejected.
         task_type = str(data.get("type", ""))
         scheduled_time = data.get("scheduled_time")
         due_date_value = data.get("due_date")
@@ -330,7 +382,12 @@ class Task(ABC):
         return self._create_next_occurrence(delta)
 
     def _create_next_occurrence(self, delta: timedelta) -> "Task":
-        """Return a new task instance representing the next occurrence."""
+        """Clone this task forward by one interval without mutating the original."""
+        # dataclasses.replace() produces a fresh instance rather than editing self,
+        # because the current-day plan and conflict detector may still be holding the
+        # original — mutating it in place would corrupt those live views. The
+        # (self.due_date or date.today()) fallback guards the never-dated case so a
+        # task with no due_date still yields a valid next occurrence instead of raising.
         next_task_id = f"{self.task_id}-next"
         next_due_date = (self.due_date or date.today()) + delta
         return replace(
@@ -460,7 +517,12 @@ class SchedulerEngine:
         return selected_tasks
 
     def generate_global_plan(self, owner: Owner) -> List[ScheduleItem]:
-        """Retrieve tasks from the owner's pets and build a budget-aware global plan."""
+        """Greedily fill the owner's daily minute budget in canonical priority order."""
+        # Greedy-by-precedence, not optimal packing: tasks are consumed in the sorted
+        # priority/time order and admitted while they fit the remaining budget. This can
+        # skip a large high-priority task in favor of smaller lower ones, which is the
+        # intended behavior — honoring the priority ordering matters more than maximizing
+        # raw minute utilization for a care schedule.
         available_minutes = owner.daily_time_budget_minutes
         selected_plan: List[ScheduleItem] = []
         total_minutes = 0
@@ -579,7 +641,13 @@ class SchedulerEngine:
         return expanded_items
 
     def detect_conflicts(self, contextual_tasks: List[ScheduleItem]) -> List[Dict[str, object]]:
-        """Report conflicts when two scheduled tasks share the same clock time or overlap."""
+        """Return every overlapping/same-time task pair via exhaustive pairwise comparison."""
+        # Complexity: O(N^2) — every active pair is tested. This is a deliberate MVP
+        # tradeoff: an O(N log N) sweep-line / interval tree would scale better, but a
+        # single owner's daily task count is tiny (N in the low tens), so the brute-force
+        # double loop wins on clarity and correctness with no measurable cost. Revisit
+        # only if planning ever spans many pets over long horizons. Completed and
+        # unscheduled items are filtered out first so they never generate false pairs.
         conflicts: List[Dict[str, object]] = []
         active_items = [
             item for item in contextual_tasks if not item.task.is_completed and item.task.scheduled_time_value is not None
@@ -604,7 +672,10 @@ class SchedulerEngine:
         start_time: Optional[time] = None,
         day_end: Optional[time] = None,
     ) -> Optional[time]:
-        """Return the earliest free slot that fits a task within the day."""
+        """Return the earliest gap in the day large enough to hold a task of the given length."""
+        # Complexity: O(N log N), dominated by the sort of existing blocks; the sweep
+        # itself is a single O(N) pass. Works entirely in minutes-after-midnight ints
+        # (converted from datetime.time) so gap arithmetic is exact and boundary-safe.
         if duration_minutes <= 0:
             raise ValueError("duration_minutes must be greater than zero")
 
@@ -637,7 +708,15 @@ class SchedulerEngine:
         return None
 
     def sort_tasks_contextual(self, contextual_tasks: List[ScheduleItem]) -> List[ScheduleItem]:
-        """Sort contextual pet-task pairs by priority first and then by urgency."""
+        """Order plan items by the canonical precedence: priority, then clock time, then urgency."""
+        # The tuple key encodes a strict lexicographic precedence and every later term
+        # is only a tie-breaker for the one before it:
+        #   1. -priority_rank  -> HIGH before MEDIUM before LOW (negated for descending)
+        #   2. time sort key   -> earlier clock time first within a tier
+        #   3. -urgency        -> more urgent first when times tie
+        #   4. duration, title, pet name -> deterministic, stable final ordering
+        # Negation (not reverse=True) is what lets ascending and descending fields
+        # coexist in one key.
         return sorted(
             contextual_tasks,
             key=lambda item: (
@@ -651,7 +730,10 @@ class SchedulerEngine:
         )
 
     def _task_time_sort_key(self, task: Task) -> tuple[int, int, int]:
-        """Return a sort key that places scheduled tasks first and uses HH:MM ordering."""
+        """Map a task to an (is_unscheduled, hour, minute) key so timed tasks sort ahead of untimed."""
+        # Leading 0/1 flag is the real trick: scheduled tasks emit (0, h, m) and always
+        # precede unscheduled ones, which fall back to (1, 23, 59). Prefers the native
+        # time object and only string-parses as a defensive fallback.
         task_time = getattr(task, "time", None)
         if task_time is None:
             task_time = getattr(task, "scheduled_time", None)
@@ -670,7 +752,12 @@ class SchedulerEngine:
         return (1, 23, 59)
 
     def _tasks_conflict(self, first_task: Task, second_task: Task) -> bool:
-        """Return True when two tasks share the same scheduled time or overlap."""
+        """True if two scheduled tasks collide — identical start, or half-open interval overlap."""
+        # Two-tier test on native-time math (minutes since midnight):
+        #   1. Exact same start is always a conflict (double-booked instant).
+        #   2. Otherwise the standard half-open overlap predicate (startA < endB and
+        #      startB < endA) — using strict '<' so back-to-back tasks that merely
+        #      touch at a boundary (e.g. 07:30-07:40 then 07:40-...) do NOT conflict.
         if first_task.scheduled_time_value is None or second_task.scheduled_time_value is None:
             return False
 
@@ -729,6 +816,8 @@ class SchedulerEngine:
 
 
 class Scheduler(SchedulerEngine):
-    """Backward-compatible public scheduler interface."""
+    """Stable public alias for SchedulerEngine, preserved so older imports/tests keep resolving."""
 
+    # Intentionally empty: the name is a compatibility seam, not a new behavior surface.
+    # Renaming the engine would break existing call sites, so the old symbol is kept.
     pass

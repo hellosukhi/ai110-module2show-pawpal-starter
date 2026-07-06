@@ -33,6 +33,12 @@ owner, pet, and task objects that persist during the session.
 """
 )
 
+# Streamlit re-executes this whole script top-to-bottom on every interaction, so all
+# durable state lives in st.session_state. The domain objects are hydrated from disk
+# exactly once (guarded by the "not in session_state" check) and then survive reruns
+# in memory; each mutating action below re-persists via save_to_json. This is the
+# load-once / save-on-mutation half of the stateless-persistence contract owned by
+# pawpal_system's to_dict/from_dict pipeline.
 if "owner" not in st.session_state:
     if os.path.exists(DATA_FILE):
         st.session_state.owner = Owner.load_from_json(DATA_FILE)
@@ -40,6 +46,7 @@ if "owner" not in st.session_state:
         st.session_state.owner = Owner(name="Jordan", daily_time_budget_minutes=60)
 
 if "scheduler" not in st.session_state:
+    # The engine is stateless, but caching it avoids reallocating it on every rerun.
     st.session_state.scheduler = SchedulerEngine()
 
 owner = st.session_state.owner
@@ -239,9 +246,12 @@ if st.button("⚡ Generate Optimal Daily Schedule", key="generate_schedule_butto
                     # Map the explicit TaskPriority enum to a color-coded status banner.
                     render_priority_status(task)
 
-                    # Build task-specific care instructions using safe attribute inspection
+                    # Subtype-specific detail is discovered by attribute presence
+                    # (duck typing) rather than isinstance branching, so adding a new
+                    # Task subclass with its own fields needs no change here — the view
+                    # renders whatever care attributes a task happens to expose.
                     instructions_parts = []
-                    
+
                     # Check for Medication task attributes
                     if hasattr(task, "dosage") and task.dosage:
                         instructions_parts.append(f"💊 Dosage: {task.dosage}")
