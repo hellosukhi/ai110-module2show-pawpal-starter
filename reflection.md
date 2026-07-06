@@ -116,6 +116,8 @@ Yes. During implementation, I tightened the model in two ways so the design matc
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+One tradeoff in the current scheduler is that conflict detection is intentionally lightweight: it flags tasks when they share the exact same start time or overlap in time, but it does not attempt a full optimization or rescheduling pass. This keeps the implementation simple, fast, and easy to understand, which is appropriate for a small pet-care planning demo. In a more complex real-world system, a richer approach might suggest alternative slots, rebalance priorities, or resolve conflicts automatically, but that would add more logic and complexity than this project needs.
+
 ---
 
 ## 3. AI Collaboration

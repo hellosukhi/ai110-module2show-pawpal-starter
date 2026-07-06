@@ -81,14 +81,14 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+The scheduling engine now supports a few practical planning behaviors that make the daily plan more useful:
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Sorting behavior | `Scheduler.sort_tasks()`, `Scheduler.sort_by_time()`, `Scheduler.sort_tasks_contextual()` | Tasks are prioritized by effective urgency, shorter duration, and, when relevant, chronological time order. |
+| Filtering behavior | `Scheduler.filter_tasks()`, `Scheduler.filter_schedule_items()` | The planner can filter tasks by completion state and by pet name, making it easy to focus on active or pet-specific work. |
+| Conflict detection logic | `Scheduler.detect_conflicts()`, `Scheduler._tasks_conflict()`, `Scheduler._conflict_reason()` | The scheduler identifies overlapping or identical scheduled times so potential double-booking is visible. |
+| Recurring task logic | `Scheduler.expand_recurring_tasks()`, `Scheduler.expand_recurring_schedule_items()` | Recurring tasks can be expanded into multiple instances for planning, including daily and weekly behavior through the task model. |
 
 ## 📸 Demo Walkthrough
 
