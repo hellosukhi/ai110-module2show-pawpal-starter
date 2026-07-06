@@ -15,6 +15,12 @@ class Pet:
     species: str
     age: int
     health_flags: List[str] = field(default_factory=list)
+    tasks: List["Task"] = field(default_factory=list)
+
+    def add_task(self, task: "Task") -> None:
+        """Assign a care task directly to this pet's itinerary."""
+        if task not in self.tasks:
+            self.tasks.append(task)
 
     def add_health_flag(self, flag: str) -> None:
         """Add a health-related flag to the pet profile."""
@@ -28,6 +34,7 @@ class Pet:
             "species": self.species,
             "age": self.age,
             "health_flags": list(self.health_flags),
+            "task_count": len(self.tasks),
         }
 
 
@@ -48,6 +55,14 @@ class Owner:
         """Adjust the owner's available daily care time."""
         self.daily_time_budget_minutes = max(0, minutes)
 
+    def get_all_tasks_contextual(self) -> List[tuple[Pet, "Task"]]:
+        """Return all tasks associated with the owner's pets, preserving pet context."""
+        aggregated_context: List[tuple[Pet, "Task"]] = []
+        for pet in self.pets:
+            for task in pet.tasks:
+                aggregated_context.append((pet, task))
+        return aggregated_context
+
 
 @dataclass
 class Task(ABC):
@@ -59,6 +74,7 @@ class Task(ABC):
     base_priority: int
     pet: Optional["Pet"] = None
     is_completed: bool = False
+    scheduled_time: str = ""
 
     def __post_init__(self) -> None:
         if self.duration_minutes <= 0:
@@ -87,8 +103,12 @@ class Task(ABC):
         return 0.0
 
     @abstractmethod
+    def calculate_base_urgency(self) -> float:
+        """Compute the task's urgency independent of pet-health context."""
+
     def calculate_urgency(self) -> float:
-        """Force concrete subclasses to implement custom urgency logic."""
+        """Return the task urgency using the base urgency calculation."""
+        return self.calculate_base_urgency()
 
 
 @dataclass
@@ -98,7 +118,7 @@ class MedicationTask(Task):
     dosage: str = ""
     dosage_window: str = ""
 
-    def calculate_urgency(self) -> float:
+    def calculate_base_urgency(self) -> float:
         return (self.base_priority * 4.0) - (self.duration_minutes * 0.25)
 
 
@@ -109,7 +129,7 @@ class FeedingTask(Task):
     food_type: str = ""
     amount_grams: int = 0
 
-    def calculate_urgency(self) -> float:
+    def calculate_base_urgency(self) -> float:
         return (self.base_priority * 3.0) - (self.duration_minutes * 0.2)
 
 
@@ -137,6 +157,22 @@ class SchedulerEngine:
 
         return selected_tasks
 
+    def generate_global_plan(self, owner: Owner) -> List[tuple[Pet, Task]]:
+        """Retrieve tasks from the owner's pets and build a budget-aware global plan."""
+        available_minutes = owner.daily_time_budget_minutes
+        selected_plan: List[tuple[Pet, Task]] = []
+        total_minutes = 0
+
+        contextual_tasks = owner.get_all_tasks_contextual()
+        for pet, task in self.sort_tasks_contextual(contextual_tasks):
+            if task.is_completed:
+                continue
+            if total_minutes + task.duration_minutes <= available_minutes:
+                selected_plan.append((pet, task))
+                total_minutes += task.duration_minutes
+
+        return selected_plan
+
     def sort_tasks(self, tasks: List[Task], pet: Optional[Pet] = None) -> List[Task]:
         """Sort tasks by urgency descending and then by shorter duration first."""
         return sorted(
@@ -148,8 +184,27 @@ class SchedulerEngine:
             ),
         )
 
+    def sort_tasks_contextual(
+        self, contextual_tasks: List[tuple[Pet, Task]]
+    ) -> List[tuple[Pet, Task]]:
+        """Sort contextual pet-task pairs by effective urgency and duration."""
+        return sorted(
+            contextual_tasks,
+            key=lambda item: (
+                -self._effective_contextual_urgency(item[0], item[1]),
+                item[1].duration_minutes,
+                item[1].title,
+            ),
+        )
+
     def _effective_urgency(self, task: Task, pet: Optional[Pet]) -> float:
         """Combine the task's base urgency with any pet-health context."""
         if task.pet is None and pet is not None:
+            task.pet = pet
+        return task.calculate_urgency() + task._health_context_boost(pet)
+
+    def _effective_contextual_urgency(self, pet: Pet, task: Task) -> float:
+        """Combine the task's urgency and the pet's health context for global planning."""
+        if task.pet is None:
             task.pet = pet
         return task.calculate_urgency() + task._health_context_boost(pet)
