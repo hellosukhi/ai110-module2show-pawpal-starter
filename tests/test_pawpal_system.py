@@ -13,6 +13,7 @@ from pawpal_system import (
     SchedulerEngine,
     Task,
     TaskFrequency,
+    TaskPriority,
 )
 
 
@@ -259,6 +260,35 @@ def test_scheduler_sorts_tasks_by_time_and_keeps_unscheduled_last():
     ordered = scheduler.sort_tasks_by_time([late_task, unscheduled_task, early_task])
 
     assert ordered == [early_task, late_task, unscheduled_task]
+
+
+def test_scheduler_prioritizes_high_priority_tasks_before_time_order():
+    scheduler = SchedulerEngine()
+    low_priority_task = FeedingTask(
+        task_id="feed-18",
+        title="Low priority feed",
+        duration_minutes=10,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=200,
+        scheduled_time="06:00",
+        priority="low",
+    )
+    high_priority_task = MedicationTask(
+        task_id="med-14",
+        title="High priority medicine",
+        duration_minutes=10,
+        base_priority=8,
+        dosage="1 tablet",
+        dosage_window="morning",
+        scheduled_time="07:00",
+        priority="high",
+    )
+
+    ordered = scheduler.sort_tasks_by_time([low_priority_task, high_priority_task])
+
+    assert ordered == [high_priority_task, low_priority_task]
+    assert high_priority_task.priority is TaskPriority.HIGH
 
 
 def test_scheduler_sort_by_time_uses_a_lambda_key_for_hh_mm_strings():

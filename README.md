@@ -33,6 +33,47 @@ PawPal+ uses a lightweight scheduling engine to turn pet-care data into a practi
 - Daily and weekly recurrence: recurring tasks can be expanded into future occurrences for planning.
 - Pet-aware filtering: the system can filter tasks by pet name or completion state for focused review.
 
+## 🎨 Presentation & Formatting
+
+PawPal+ ships a polished presentation layer across both the CLI and the Streamlit UI:
+
+- **`tabulate`** (`tablefmt="fancy_grid"`) — the CLI in [main.py](main.py) renders the
+  daily plan as a bordered grid with per-task-type icons (💊 for `MedicationTask`,
+  🥣 for `FeedingTask`) and a `⏳`/`✅` completion indicator.
+- **Streamlit native status components** — the UI in [app.py](app.py) maps each
+  explicit `TaskPriority` enum to a high-visibility banner: `st.error` for **HIGH**,
+  `st.warning` for **MEDIUM**, and `st.info` for **LOW**, alongside the existing
+  hybrid `st.metric` dashboard.
+
+Run the CLI demo to see the formatted grid:
+
+```bash
+python main.py
+```
+
+Example `fancy_grid` terminal output:
+
+```text
+Today's Schedule
+================
+Owner: Jordan
+Daily budget: 60 min
+
+╒═════╤════════╤═════════════╤════════╤═══════════════════╤════════════╤════════════╤══════════════════╕
+│   # │ Time   │ Pet         │ Type   │ Task              │ Duration   │ Priority   │ Details          │
+╞═════╪════════╪═════════════╪════════╪═══════════════════╪════════════╪════════════╪══════════════════╡
+│   1 │ 07:30  │ Mochi (dog) │ ⏳ 💊   │ Morning medicine  │ 10 min     │ [MEDIUM]   │ Dosage: 1 tablet │
+├─────┼────────┼─────────────┼────────┼───────────────────┼────────────┼────────────┼──────────────────┤
+│   2 │ 07:30  │ Mochi (dog) │ ⏳ 💊   │ Morning medicine  │ 10 min     │ [MEDIUM]   │ Dosage: 1 tablet │
+├─────┼────────┼─────────────┼────────┼───────────────────┼────────────┼────────────┼──────────────────┤
+│   3 │ 07:30  │ Mochi (dog) │ ⏳ 💊   │ Morning medicine  │ 10 min     │ [MEDIUM]   │ Dosage: 1 tablet │
+├─────┼────────┼─────────────┼────────┼───────────────────┼────────────┼────────────┼──────────────────┤
+│   4 │ 07:30  │ Luna (cat)  │ ⏳ 🥣   │ Same-time feeding │ 10 min     │ [MEDIUM]   │ dry food (180g)  │
+├─────┼────────┼─────────────┼────────┼───────────────────┼────────────┼────────────┼──────────────────┤
+│   5 │ 07:35  │ Mochi (dog) │ ⏳ 🥣   │ Overlap feeding   │ 15 min     │ [MEDIUM]   │ wet food (180g)  │
+╘═════╧════════╧═════════════╧════════╧═══════════════════╧════════════╧════════════╧══════════════════╛
+```
+
 ## Getting started
 
 ### Setup
@@ -118,6 +159,25 @@ Warning: 6 scheduling conflict(s) detected.
 ```
 
 Optional screenshots or a short demo video can be added later for human reviewers, but the walkthrough above and the CLI example make the app easy to evaluate.
+
+## 🔼 Priority-based scheduling
+
+The scheduler now ranks tasks by priority level before time, so a high-priority medication reminder can be placed ahead of a lower-priority feeding task even if the latter is earlier in the day.
+
+Example CLI output:
+
+```text
+Priority-based plan
+===================
+1. 07:00 — Mochi (dog)
+   • High priority medicine (10 min) [HIGH]
+2. 08:00 — Mochi (dog)
+   • Medium priority breakfast (10 min) [MEDIUM]
+3. 09:00 — Mochi (dog)
+   • Low priority check-in (10 min) [LOW]
+```
+
+This makes it easier to surface urgent care tasks first while still preserving a clear chronological order within the same priority tier.
 
 ## 🧪 Testing PawPal+
 

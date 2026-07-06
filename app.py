@@ -3,9 +3,24 @@ import uuid
 
 import streamlit as st
 
-from pawpal_system import FeedingTask, MedicationTask, Owner, Pet, SchedulerEngine
+from pawpal_system import FeedingTask, MedicationTask, Owner, Pet, SchedulerEngine, TaskPriority
 
 DATA_FILE = "data.json"
+
+
+def render_priority_status(task) -> None:
+    """Render a task's priority using a high-visibility Streamlit status component.
+
+    HIGH -> st.error (red), MEDIUM -> st.warning (amber), LOW -> st.info (blue).
+    """
+    priority = TaskPriority.from_value(task.priority)
+    label = priority.value.upper()
+    if priority == TaskPriority.HIGH:
+        st.error(f"🔴 Priority: {label} — needs attention first")
+    elif priority == TaskPriority.MEDIUM:
+        st.warning(f"🟠 Priority: {label} — schedule when convenient")
+    else:
+        st.info(f"🔵 Priority: {label} — flexible timing")
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="wide")
 
@@ -81,7 +96,7 @@ if owner.pets:
                         "Type": task_type,
                         "Task": task.title,
                         "Duration": f"{task.duration_minutes} min",
-                        "Priority": task.base_priority,
+                        "Priority": task.priority.value.upper(),
                         "Status": "✓ Done" if task.is_completed else "○ Pending",
                     })
                 st.table(pet_tasks_data)
@@ -103,6 +118,12 @@ if owner.pets:
 
     task_type = st.selectbox("Task type", ["feeding", "medication"], key="task_type_select")
     task_title = st.text_input("Task title", value="Meal time", key="task_title_input")
+    priority_level = st.selectbox(
+        "Priority",
+        ["low", "medium", "high"],
+        index=1,
+        key="task_priority_select",
+    )
     duration = st.number_input(
         "Duration (minutes)", min_value=1, max_value=240, value=10, key="task_duration_input"
     )
@@ -119,6 +140,7 @@ if owner.pets:
                 title=task_title.strip() or "Feeding",
                 duration_minutes=int(duration),
                 base_priority=int(priority),
+                priority=priority_level,
                 food_type=food_type,
                 amount_grams=int(amount_grams),
             )
@@ -135,6 +157,7 @@ if owner.pets:
                 title=task_title.strip() or "Medication",
                 duration_minutes=int(duration),
                 base_priority=int(priority),
+                priority=priority_level,
                 dosage=dosage,
                 dosage_window=dosage_window,
             )
@@ -212,7 +235,10 @@ if st.button("⚡ Generate Optimal Daily Schedule", key="generate_schedule_butto
                     # Render card header with hierarchical structure
                     st.markdown(f"### {idx}. **{time_label}** — {task.title} for **{pet.name}**")
                     st.caption(f"Species: {pet.species.value} | Duration: {task.duration_minutes} min | Priority: {task.base_priority}/10")
-                    
+
+                    # Map the explicit TaskPriority enum to a color-coded status banner.
+                    render_priority_status(task)
+
                     # Build task-specific care instructions using safe attribute inspection
                     instructions_parts = []
                     

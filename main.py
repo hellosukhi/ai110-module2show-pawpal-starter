@@ -2,6 +2,11 @@ from datetime import time
 
 from pawpal_system import FeedingTask, MedicationTask, Owner, Pet, ScheduleItem, SchedulerEngine
 
+try:
+    from tabulate import tabulate
+except ImportError:  # pragma: no cover - fallback for environments without tabulate
+    tabulate = None
+
 
 def build_demo_schedule():
     """Build a demo owner, pets, and scheduling scenario for local testing."""
@@ -81,8 +86,41 @@ def build_demo_schedule():
     return owner, sorted_plan, filtered_plan, conflicts
 
 
+def _task_icon(task: object) -> str:
+    """Return a user-friendly emoji for the task type."""
+    if isinstance(task, MedicationTask):
+        return "💊"
+    if isinstance(task, FeedingTask):
+        return "🥣"
+    return "📝"
+
+
+def _status_icon(task: object) -> str:
+    """Return a status indicator for completed vs pending work."""
+    return "✅" if getattr(task, "is_completed", False) else "⏳"
+
+
+def _priority_badge(task: object) -> str:
+    """Return a small priority label for display."""
+    priority = getattr(task, "priority", None)
+    if priority is None:
+        return "[MEDIUM]"
+    # TaskPriority is a str-Enum; use .value so we render "HIGH" not "TaskPriority.HIGH".
+    priority_text = getattr(priority, "value", priority)
+    return f"[{str(priority_text).upper()}]"
+
+
+def _task_details(task: object) -> str:
+    """Return a short task-specific detail string for table display."""
+    if isinstance(task, MedicationTask):
+        return f"Dosage: {task.dosage}" if task.dosage else "Medication"
+    if isinstance(task, FeedingTask):
+        return f"{task.food_type} ({task.amount_grams}g)" if task.food_type else "Feeding"
+    return "—"
+
+
 def format_schedule(owner: Owner, plan: list[ScheduleItem]) -> str:
-    """Render a human-readable schedule from the selected plan items."""
+    """Render the selected plan as a professional fancy_grid table."""
     lines = [
         "Today's Schedule",
         "================",
@@ -95,19 +133,61 @@ def format_schedule(owner: Owner, plan: list[ScheduleItem]) -> str:
         lines.append("No tasks scheduled today.")
         return "\n".join(lines)
 
+    headers = ["#", "Time", "Pet", "Type", "Task", "Duration", "Priority", "Details"]
+    rows = []
     for index, item in enumerate(plan, start=1):
         pet = item.pet
         task = item.task
-        time_label = task.scheduled_time_label
-        lines.append(f"{index}. {time_label} — {pet.name} ({pet.species.value})")
-        lines.append(f"   • {task.title} ({task.duration_minutes} min)")
+        rows.append(
+            [
+                index,
+                task.scheduled_time_label,
+                f"{pet.name} ({pet.species.value})",
+                f"{_status_icon(task)} {_task_icon(task)}",
+                task.title,
+                f"{task.duration_minutes} min",
+                _priority_badge(task),
+                _task_details(task),
+            ]
+        )
 
-        if isinstance(task, MedicationTask):
-            lines.append(f"   • Dosage: {task.dosage}")
-        elif isinstance(task, FeedingTask):
-            lines.append(f"   • Food: {task.food_type} ({task.amount_grams}g)")
+    if tabulate is None:
+        # Fallback to plain text when tabulate is unavailable.
+        for row in rows:
+            lines.append(
+                f"{row[0]}. {row[1]} — {row[2]} | {row[3]} {row[4]} "
+                f"({row[5]}) {row[6]} | {row[7]}"
+            )
+        return "\n".join(lines)
 
+    lines.append(tabulate(rows, headers=headers, tablefmt="fancy_grid"))
     return "\n".join(lines)
+
+
+def format_task_table(tasks: list[object]) -> str:
+    """Return a simple CLI table of pending tasks when tabulate is available."""
+    if tabulate is None:
+        return ""
+
+    rows = []
+    for task in tasks:
+        rows.append(
+            [
+                _status_icon(task),
+                _task_icon(task),
+                getattr(task, "scheduled_time_label", "Unscheduled"),
+                task.title,
+                getattr(task, "pet_name", "Unassigned"),
+                f"{task.duration_minutes} min",
+                _priority_badge(task),
+            ]
+        )
+
+    return tabulate(
+        rows,
+        headers=["Status", "Type", "Time", "Task", "Pet", "Duration", "Priority"],
+        tablefmt="fancy_grid",
+    )
 
 
 def format_debug_summary(owner: Owner, plan: list[ScheduleItem], filtered_plan: list[ScheduleItem], conflicts: list[dict]) -> str:
@@ -149,12 +229,16 @@ if __name__ == "__main__":
     print("\nSorted tasks by time:")
     print("---------------------")
     for task in sorted_tasks:
-        print(f"- {task.scheduled_time_label} :: {task.title} ({task.pet_name or 'Unassigned'})")
+        print(f"- {_status_icon(task)} {task.scheduled_time_label} :: {task.title} ({task.pet_name or 'Unassigned'}) {_priority_badge(task)}")
 
     print("\nFiltered pending tasks for Mochi:")
     print("--------------------------------")
     if not filtered_tasks:
         print("No pending tasks for Mochi.")
     else:
-        for task in filtered_tasks:
-            print(f"- {task.scheduled_time_label} :: {task.title}")
+        table_output = format_task_table(filtered_tasks)
+        if table_output:
+            print(table_output)
+        else:
+            for task in filtered_tasks:
+                print(f"- {_status_icon(task)} {task.scheduled_time_label} :: {task.title}")

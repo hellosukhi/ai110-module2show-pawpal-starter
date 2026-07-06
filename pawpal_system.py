@@ -53,6 +53,26 @@ class TaskFrequency(str, Enum):
         raise ValueError(f"Unsupported task frequency: {value}")
 
 
+class TaskPriority(str, Enum):
+    """Supported priority levels for scheduled tasks."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+    @classmethod
+    def from_value(cls, value: Union["TaskPriority", str]) -> "TaskPriority":
+        """Normalize string input into a validated enum member."""
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            normalized_value = value.strip().lower()
+            for member in cls:
+                if member.value == normalized_value:
+                    return member
+        raise ValueError(f"Unsupported task priority: {value}")
+
+
 _HEALTH_CONTEXT_FLAG_GROUPS = {
     "high": {"pain", "critical", "monitoring", "urgent", "injury", "sick"},
     "moderate": {"sensitive", "diet", "recovery"},
@@ -202,6 +222,7 @@ class Task(ABC):
     base_priority: int
     pet_name: Optional[str] = None
     is_completed: bool = False
+    priority: Union[TaskPriority, str] = TaskPriority.MEDIUM
     scheduled_time: Optional[str] = None
     due_date: Optional[date] = None
     frequency: Union[TaskFrequency, str] = TaskFrequency.DAILY
@@ -217,6 +238,7 @@ class Task(ABC):
             raise ValueError("base_priority must be non-negative")
 
         self.frequency = TaskFrequency.from_value(self.frequency)
+        self.priority = TaskPriority.from_value(self.priority)
         if self.recurring_occurrences < 1:
             raise ValueError("recurring_occurrences must be at least 1")
         self.scheduled_time_value = self._parse_scheduled_time(self.scheduled_time)
@@ -232,6 +254,7 @@ class Task(ABC):
             "base_priority": self.base_priority,
             "pet_name": self.pet_name,
             "is_completed": self.is_completed,
+            "priority": self.priority.value,
             "scheduled_time": self.scheduled_time,
             "due_date": self.due_date.isoformat() if self.due_date is not None else None,
             "frequency": self.frequency.value,
@@ -261,6 +284,7 @@ class Task(ABC):
                 base_priority=int(data.get("base_priority", 0)),
                 pet_name=data.get("pet_name"),
                 is_completed=bool(data.get("is_completed", False)),
+                priority=data.get("priority", TaskPriority.MEDIUM.value),
                 scheduled_time=scheduled_time,
                 due_date=due_date,
                 frequency=data.get("frequency", TaskFrequency.DAILY.value),
@@ -278,6 +302,7 @@ class Task(ABC):
                 base_priority=int(data.get("base_priority", 0)),
                 pet_name=data.get("pet_name"),
                 is_completed=bool(data.get("is_completed", False)),
+                priority=data.get("priority", TaskPriority.MEDIUM.value),
                 scheduled_time=scheduled_time,
                 due_date=due_date,
                 frequency=data.get("frequency", TaskFrequency.DAILY.value),
@@ -451,10 +476,12 @@ class SchedulerEngine:
         return selected_plan
 
     def sort_tasks(self, tasks: List[Task], pet: Optional[Pet] = None) -> List[Task]:
-        """Sort tasks by urgency descending and then by shorter duration first."""
+        """Sort tasks by priority first, then by time, and finally by urgency."""
         return sorted(
             tasks,
             key=lambda task: (
+                -self._priority_rank(task.priority),
+                self._task_time_sort_key(task),
                 -self._effective_urgency(task, pet),
                 task.duration_minutes,
                 task.title,
@@ -462,10 +489,11 @@ class SchedulerEngine:
         )
 
     def sort_by_time(self, tasks: List[Task]) -> List[Task]:
-        """Sort tasks chronologically by HH:MM time, leaving unscheduled tasks at the end."""
+        """Sort tasks by priority first and then chronologically by HH:MM time."""
         return sorted(
             tasks,
             key=lambda task: (
+                -self._priority_rank(task.priority),
                 self._task_time_sort_key(task),
                 task.title,
             ),
@@ -609,10 +637,12 @@ class SchedulerEngine:
         return None
 
     def sort_tasks_contextual(self, contextual_tasks: List[ScheduleItem]) -> List[ScheduleItem]:
-        """Sort contextual pet-task pairs by effective urgency and duration."""
+        """Sort contextual pet-task pairs by priority first and then by urgency."""
         return sorted(
             contextual_tasks,
             key=lambda item: (
+                -self._priority_rank(item.task.priority),
+                self._task_time_sort_key(item.task),
                 -self._effective_contextual_urgency(item.pet, item.task),
                 item.task.duration_minutes,
                 item.task.title,
@@ -668,6 +698,16 @@ class SchedulerEngine:
         """Convert minutes after midnight back into a datetime.time."""
         hour, minute = divmod(minutes_after_midnight, 60)
         return time(hour=hour, minute=minute)
+
+    def _priority_rank(self, priority: Union[TaskPriority, str]) -> int:
+        """Map a priority level to a sortable numeric rank."""
+        normalized_priority = TaskPriority.from_value(priority)
+        rank_map = {
+            TaskPriority.LOW: 0,
+            TaskPriority.MEDIUM: 1,
+            TaskPriority.HIGH: 2,
+        }
+        return rank_map[normalized_priority]
 
     def _effective_urgency(self, task: Task, pet: Optional[Pet]) -> float:
         """Combine the task's base urgency with any pet-health context."""
