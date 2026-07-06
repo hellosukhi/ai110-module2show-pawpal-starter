@@ -1,0 +1,110 @@
+classDiagram
+    class PetSpecies {
+        <<enumeration>>
+        DOG
+        CAT
+        BIRD
+        RABBIT
+        OTHER
+        +from_value(value)
+    }
+
+    class TaskFrequency {
+        <<enumeration>>
+        DAILY
+        WEEKLY
+        AS_NEEDED
+        +from_value(value)
+    }
+
+    class Owner {
+        -name: str
+        -daily_time_budget_minutes: int
+        -pets: list[Pet]
+        +add_pet(pet: Pet): void
+        +update_time_budget(minutes: int): void
+        +get_all_tasks_contextual(): list[ScheduleItem]
+    }
+
+    class Pet {
+        -name: str
+        -species: PetSpecies
+        -age: int
+        -health_flags: list[str]
+        -tasks: list[Task]
+        +__post_init__(): void
+        +add_task(task: Task): void
+        +add_health_flag(flag: str): void
+        +get_profile(): dict
+    }
+
+    class ScheduleItem {
+        -pet: Pet
+        -task: Task
+    }
+
+    class Task {
+        <<Abstract>>
+        -task_id: str
+        -title: str
+        -duration_minutes: int
+        -base_priority: int
+        -pet_name: Optional[str]
+        -is_completed: bool
+        -scheduled_time: Optional[str]
+        -due_date: Optional[date]
+        -frequency: TaskFrequency
+        -is_recurring: bool
+        -recurring_occurrences: int
+        +__post_init__(): void
+        +mark_complete(): Optional[Task]
+        +due_date_label: str
+        +time: Optional[str]
+        +scheduled_time_label: str
+        +calculate_base_urgency(): float
+        +calculate_urgency(): float
+    }
+
+    class MedicationTask {
+        -dosage: str
+        -dosage_window: str
+        +calculate_base_urgency(): float
+    }
+
+    class FeedingTask {
+        -food_type: str
+        -amount_grams: int
+        +calculate_base_urgency(): float
+    }
+
+    class SchedulerEngine {
+        +generate_plan(owner: Owner, pet: Pet, tasks: list[Task]): list[Task]
+        +generate_global_plan(owner: Owner): list[ScheduleItem]
+        +sort_tasks(tasks: list[Task], pet: Optional[Pet]): list[Task]
+        +sort_by_time(tasks: list[Task]): list[Task]
+        +filter_tasks(tasks: list[Task], completed: Optional[bool], pet_name: Optional[str]): list[Task]
+        +filter_schedule_items(contextual_tasks: list[ScheduleItem], pet: Optional[Union[Pet, str]], include_completed: bool): list[ScheduleItem]
+        +expand_recurring_tasks(tasks: list[Task], max_occurrences: int): list[Task]
+        +expand_recurring_schedule_items(contextual_tasks: list[ScheduleItem], max_occurrences: int): list[ScheduleItem]
+        +detect_conflicts(contextual_tasks: list[ScheduleItem]): list[Dict[str, object]]
+        +sort_tasks_contextual(contextual_tasks: list[ScheduleItem]): list[ScheduleItem]
+        +mark_task_complete(task: Task, pet: Optional[Pet]): Optional[Task]
+    }
+
+    class Scheduler {
+        <<inherits>>
+    }
+
+    PetSpecies <.. Pet : normalizes
+    TaskFrequency <.. Task : normalizes
+    Owner "1" o-- "0..*" Pet : manages
+    Pet "1" o-- "0..*" Task : owns
+    ScheduleItem --> Pet : references
+    ScheduleItem --> Task : references
+    Task <|-- MedicationTask : specializes
+    Task <|-- FeedingTask : specializes
+    SchedulerEngine ..> Owner : evaluates
+    SchedulerEngine ..> Pet : evaluates
+    SchedulerEngine ..> ScheduleItem : plans
+    SchedulerEngine ..> Task : prioritizes
+    Scheduler --|> SchedulerEngine

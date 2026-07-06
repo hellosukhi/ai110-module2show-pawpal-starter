@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from datetime import date, time, timedelta
@@ -81,6 +83,29 @@ class Pet:
             task.pet_name = self.name
             self.tasks.append(task)
 
+    def to_dict(self) -> Dict[str, object]:
+        """Serialize the pet profile and nested tasks into JSON-compatible primitives."""
+        return {
+            "name": self.name,
+            "species": self.species.value,
+            "age": self.age,
+            "health_flags": list(self.health_flags),
+            "tasks": [task.to_dict() for task in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "Pet":
+        """Rehydrate a pet object and its nested tasks from a serialized dictionary."""
+        pet = cls(
+            name=str(data.get("name", "")),
+            species=data.get("species", PetSpecies.OTHER.value),
+            age=int(data.get("age", 0)),
+            health_flags=list(data.get("health_flags", [])),
+        )
+        for task_data in data.get("tasks", []):
+            pet.add_task(Task.from_dict(task_data))
+        return pet
+
     def add_health_flag(self, flag: str) -> None:
         """Add a health-related flag to the pet profile."""
         if flag and flag not in self.health_flags:
@@ -113,6 +138,42 @@ class Owner:
     def update_time_budget(self, minutes: int) -> None:
         """Adjust the owner's available daily care time."""
         self.daily_time_budget_minutes = max(0, minutes)
+
+    def to_dict(self) -> Dict[str, object]:
+        """Serialize the owner state and pet collection to JSON-compatible primitives."""
+        return {
+            "name": self.name,
+            "daily_time_budget_minutes": self.daily_time_budget_minutes,
+            "pets": [pet.to_dict() for pet in self.pets],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "Owner":
+        """Rehydrate an owner object and its pets from a serialized dictionary."""
+        owner = cls(
+            name=str(data.get("name", "")),
+            daily_time_budget_minutes=int(data.get("daily_time_budget_minutes", 0)),
+        )
+        for pet_data in data.get("pets", []):
+            owner.add_pet(Pet.from_dict(pet_data))
+        return owner
+
+    def save_to_json(self, filepath: str = "data.json") -> None:
+        """Persist the owner and its pet/task state to a local JSON file."""
+        directory = os.path.dirname(filepath)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as handle:
+            json.dump(self.to_dict(), handle, indent=2)
+
+    @classmethod
+    def load_from_json(cls, filepath: str = "data.json") -> "Owner":
+        """Load an owner and its pet/task data from a previously saved JSON file."""
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"No state file found at {filepath}")
+        with open(filepath, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return cls.from_dict(data)
 
     def get_all_tasks_contextual(self) -> List["ScheduleItem"]:
         """Return all tasks associated with the owner's pets, preserving pet context."""
@@ -161,6 +222,72 @@ class Task(ABC):
         self.scheduled_time_value = self._parse_scheduled_time(self.scheduled_time)
         if self.scheduled_time_value is not None:
             self.scheduled_time = self.scheduled_time_value.strftime("%H:%M")
+
+    def to_dict(self) -> Dict[str, object]:
+        """Serialize the task into JSON-compatible primitives."""
+        payload: Dict[str, object] = {
+            "task_id": self.task_id,
+            "title": self.title,
+            "duration_minutes": self.duration_minutes,
+            "base_priority": self.base_priority,
+            "pet_name": self.pet_name,
+            "is_completed": self.is_completed,
+            "scheduled_time": self.scheduled_time,
+            "due_date": self.due_date.isoformat() if self.due_date is not None else None,
+            "frequency": self.frequency.value,
+            "is_recurring": self.is_recurring,
+            "recurring_occurrences": self.recurring_occurrences,
+            "type": self.__class__.__name__,
+        }
+        if isinstance(self, MedicationTask):
+            payload.update({"dosage": self.dosage, "dosage_window": self.dosage_window})
+        if isinstance(self, FeedingTask):
+            payload.update({"food_type": self.food_type, "amount_grams": self.amount_grams})
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "Task":
+        """Rehydrate a task from a serialized dictionary."""
+        task_type = str(data.get("type", ""))
+        scheduled_time = data.get("scheduled_time")
+        due_date_value = data.get("due_date")
+        due_date = date.fromisoformat(str(due_date_value)) if due_date_value not in (None, "") else None
+
+        if task_type == "MedicationTask":
+            return MedicationTask(
+                task_id=str(data.get("task_id", "")),
+                title=str(data.get("title", "")),
+                duration_minutes=int(data.get("duration_minutes", 0)),
+                base_priority=int(data.get("base_priority", 0)),
+                pet_name=data.get("pet_name"),
+                is_completed=bool(data.get("is_completed", False)),
+                scheduled_time=scheduled_time,
+                due_date=due_date,
+                frequency=data.get("frequency", TaskFrequency.DAILY.value),
+                is_recurring=bool(data.get("is_recurring", False)),
+                recurring_occurrences=int(data.get("recurring_occurrences", 1)),
+                dosage=str(data.get("dosage", "")),
+                dosage_window=str(data.get("dosage_window", "")),
+            )
+
+        if task_type == "FeedingTask":
+            return FeedingTask(
+                task_id=str(data.get("task_id", "")),
+                title=str(data.get("title", "")),
+                duration_minutes=int(data.get("duration_minutes", 0)),
+                base_priority=int(data.get("base_priority", 0)),
+                pet_name=data.get("pet_name"),
+                is_completed=bool(data.get("is_completed", False)),
+                scheduled_time=scheduled_time,
+                due_date=due_date,
+                frequency=data.get("frequency", TaskFrequency.DAILY.value),
+                is_recurring=bool(data.get("is_recurring", False)),
+                recurring_occurrences=int(data.get("recurring_occurrences", 1)),
+                food_type=str(data.get("food_type", "")),
+                amount_grams=int(data.get("amount_grams", 0)),
+            )
+
+        raise ValueError(f"Unsupported task type for deserialization: {task_type}")
 
     def mark_complete(self) -> Optional["Task"]:
         """Mark the task as completed and return the next recurring instance if applicable."""
@@ -442,6 +569,45 @@ class SchedulerEngine:
                     )
         return conflicts
 
+    def find_next_available_slot(
+        self,
+        tasks: List[Task],
+        duration_minutes: int,
+        start_time: Optional[time] = None,
+        day_end: Optional[time] = None,
+    ) -> Optional[time]:
+        """Return the earliest free slot that fits a task within the day."""
+        if duration_minutes <= 0:
+            raise ValueError("duration_minutes must be greater than zero")
+
+        start_minutes = self._minutes_from_time(start_time or time(0, 0))
+        day_end_minutes = self._minutes_from_time(day_end or time(23, 59))
+
+        scheduled_blocks: List[tuple[int, int]] = []
+        for task in tasks:
+            if task.scheduled_time_value is None:
+                continue
+            task_start = self._minutes_from_time(task.scheduled_time_value)
+            scheduled_blocks.append((task_start, task_start + task.duration_minutes))
+
+        scheduled_blocks.sort(key=lambda block: block[0])
+
+        cursor_minutes = start_minutes
+        if scheduled_blocks:
+            cursor_minutes = max(cursor_minutes, scheduled_blocks[0][0])
+
+        for task_start, task_end in scheduled_blocks:
+            if task_start < cursor_minutes:
+                cursor_minutes = max(cursor_minutes, task_end)
+                continue
+            if task_start - cursor_minutes >= duration_minutes:
+                return self._time_from_minutes(cursor_minutes)
+            cursor_minutes = max(cursor_minutes, task_end)
+
+        if day_end_minutes - cursor_minutes >= duration_minutes:
+            return self._time_from_minutes(cursor_minutes)
+        return None
+
     def sort_tasks_contextual(self, contextual_tasks: List[ScheduleItem]) -> List[ScheduleItem]:
         """Sort contextual pet-task pairs by effective urgency and duration."""
         return sorted(
@@ -497,6 +663,11 @@ class SchedulerEngine:
     def _minutes_from_time(self, scheduled_time: time) -> int:
         """Convert a datetime.time to minutes after midnight."""
         return (scheduled_time.hour * 60) + scheduled_time.minute
+
+    def _time_from_minutes(self, minutes_after_midnight: int) -> time:
+        """Convert minutes after midnight back into a datetime.time."""
+        hour, minute = divmod(minutes_after_midnight, 60)
+        return time(hour=hour, minute=minute)
 
     def _effective_urgency(self, task: Task, pet: Optional[Pet]) -> float:
         """Combine the task's base urgency with any pet-health context."""

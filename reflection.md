@@ -124,13 +124,17 @@ One tradeoff in the current scheduler is that conflict detection is intentionall
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used the AI coding assistant as a pair-programming partner rather than as an autopilot. The most effective features were its ability to help me turn a high-level design into concrete class responsibilities, generate small implementation steps that fit a larger architecture, and explain tradeoffs in plain language when I was deciding between simpler and more sophisticated approaches. It was especially useful for debugging, refactoring, and writing tests once the core structure was already in place.
+
+The most helpful prompts were architecture-oriented questions such as: “What is the cleanest way to separate state, domain logic, and orchestration?” and “How can I keep this scheduler maintainable while still making the urgency logic feel intelligent?” I also found it valuable when I asked the assistant to compare two implementation options and justify the tradeoffs, because that helped me stay aligned with a senior-level design mindset rather than just chasing a quick solution.
+
+Using separate chat sessions for different phases was very helpful. I kept one session focused on system design and UML decisions, another on implementation details, and a later one for testing and debugging. That made it easier to preserve context, avoid mixing concerns, and keep each phase intellectually clean.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+One example of an AI suggestion I rejected was the idea of pushing more scheduling logic down into each task subclass and making the engine rely on a larger set of conditional rules. That would have made the system more fragmented and harder to reason about. I modified the suggestion by keeping task classes focused on their data and domain-specific attributes while allowing the scheduler to remain the single orchestrator for urgency, filtering, conflicts, and plan generation.
+
+I evaluated the suggestion by checking whether it preserved the architecture’s boundaries and whether it would still be easy to test. I verified the final approach by running the test suite and confirming that the behavior remained clear and predictable rather than becoming overly clever.
 
 ---
 
@@ -152,12 +156,12 @@ One tradeoff in the current scheduler is that conflict detection is intentionall
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+I am most satisfied with how I kept the system architecture coherent while still benefiting from the speed and flexibility of AI assistance. The scheduler feels like a well-bounded service with clear responsibilities, and that is exactly the kind of design discipline I wanted to preserve.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+If I had another iteration, I would deepen the scheduler’s scoring model and make its reasoning more explicit so the plan could explain itself with even more confidence. I would also consider adding a bit more sophistication around constraint handling, while still avoiding unnecessary complexity.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important lesson was that being the lead architect means setting the structure first and then using AI as a force multiplier rather than a substitute for judgment. My preference for senior-level top-down architecture and bottom-up rigor meant I needed to keep the assistant anchored to clean abstractions, strong boundaries, and testable behavior. The strongest results came when I treated the AI as a collaborator for acceleration and exploration, but still made the final architectural calls myself.

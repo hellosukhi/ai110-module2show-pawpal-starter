@@ -22,6 +22,17 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## Features
+
+PawPal+ uses a lightweight scheduling engine to turn pet-care data into a practical daily plan:
+
+- Budget-aware planning: the scheduler only selects tasks that fit within the owner’s daily time budget.
+- Urgency-based prioritization: feeding and medication tasks are scored by priority, duration, and pet-health context.
+- Sorting by time: tasks can be ordered chronologically by scheduled time, making the plan easier to follow.
+- Conflict warnings: the planner detects same-time and overlapping tasks so the user can resolve double-booking issues.
+- Daily and weekly recurrence: recurring tasks can be expanded into future occurrences for planning.
+- Pet-aware filtering: the system can filter tasks by pet name or completion state for focused review.
+
 ## Getting started
 
 ### Setup
@@ -42,9 +53,45 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
-## 🖥️ Sample Output
+## 💾 Persistence workflow
 
-Running the terminal script prints a readable daily schedule like this:
+PawPal+ now keeps its owner, pet, and task data between application runs by writing a lightweight JSON snapshot to data.json.
+
+How it works:
+- The domain model in [pawpal_system.py](pawpal_system.py) now provides custom serialization hooks for tasks, pets, and owners.
+- The Streamlit UI in [app.py](app.py) loads the saved state from data.json when the app starts and saves it again after changes such as adding pets or tasks.
+- A regression test in [tests/test_pawpal_system.py](tests/test_pawpal_system.py) verifies that a full owner/pet/task tree can be written to disk and restored correctly.
+
+Files modified for persistence:
+- [pawpal_system.py](pawpal_system.py)
+- [app.py](app.py)
+- [tests/test_pawpal_system.py](tests/test_pawpal_system.py)
+- [README.md](README.md)
+
+If data.json is missing, the app starts with a fresh default owner profile and creates the file on the next save.
+
+## Demo Walkthrough
+
+PawPal+ provides a simple but practical workflow for managing pet care through the Streamlit interface:
+
+1. Main UI features
+   - Edit the owner profile and daily time budget from the sidebar.
+   - Add one or more pets with species and age information.
+   - Create feeding or medication tasks with duration, priority, and task-specific details.
+   - Generate an optimized daily care schedule and review conflict warnings before finalizing the plan.
+
+2. Example workflow
+   - Add a pet such as Mochi.
+   - Create a medication task with a scheduled time and a feeding task for the same day.
+   - Click the schedule button to view the generated plan, including task ordering, time usage, and any conflicts.
+
+3. Scheduler behaviors shown
+   - Tasks are sorted by urgency and then arranged by time when a schedule is generated.
+   - Conflicts are flagged when tasks share the same time or overlap.
+   - Recurring tasks can expand into additional occurrences for planning.
+   - Only tasks that fit within the available budget are included in the final plan.
+
+4. Sample CLI output
 
 ```text
 Today's Schedule
@@ -55,13 +102,22 @@ Daily budget: 60 min
 1. 07:30 — Mochi (dog)
    • Morning medicine (10 min)
    • Dosage: 1 tablet
-2. 12:00 — Luna (cat)
+2. 07:30 — Mochi (dog)
+   • Morning medicine (10 min)
+   • Dosage: 1 tablet
+3. 07:30 — Luna (cat)
+   • Same-time feeding (10 min)
+   • Food: dry food (180g)
+4. 12:00 — Luna (cat)
    • Lunch feeding (8 min)
    • Food: wet food (180g)
-3. 19:00 — Mochi (dog)
-   • Dinner feeding (15 min)
-   • Food: dry food (220g)
+
+Detected conflicts:
+------------------
+Warning: 6 scheduling conflict(s) detected.
 ```
+
+Optional screenshots or a short demo video can be added later for human reviewers, but the walkthrough above and the CLI example make the app easy to evaluate.
 
 ## 🧪 Testing PawPal+
 
@@ -101,14 +157,3 @@ The scheduling engine now supports a few practical planning behaviors that make 
 | Conflict detection logic | `Scheduler.detect_conflicts()`, `Scheduler._tasks_conflict()`, `Scheduler._conflict_reason()` | The scheduler identifies overlapping or identical scheduled times so potential double-booking is visible. |
 | Recurring task logic | `Scheduler.expand_recurring_tasks()`, `Scheduler.expand_recurring_schedule_items()` | Recurring tasks can be expanded into multiple instances for planning, including daily and weekly behavior through the task model. |
 
-## 📸 Demo Walkthrough
-
-Describe your app in numbered steps so a reader can follow along without watching a video:
-
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
-
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->

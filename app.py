@@ -1,8 +1,11 @@
+import os
 import uuid
 
 import streamlit as st
 
 from pawpal_system import FeedingTask, MedicationTask, Owner, Pet, SchedulerEngine
+
+DATA_FILE = "data.json"
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="wide")
 
@@ -16,7 +19,10 @@ owner, pet, and task objects that persist during the session.
 )
 
 if "owner" not in st.session_state:
-    st.session_state.owner = Owner(name="Jordan", daily_time_budget_minutes=60)
+    if os.path.exists(DATA_FILE):
+        st.session_state.owner = Owner.load_from_json(DATA_FILE)
+    else:
+        st.session_state.owner = Owner(name="Jordan", daily_time_budget_minutes=60)
 
 if "scheduler" not in st.session_state:
     st.session_state.scheduler = SchedulerEngine()
@@ -37,6 +43,7 @@ owner.update_time_budget(
         )
     )
 )
+owner.save_to_json(DATA_FILE)
 
 st.subheader("Add a pet")
 with st.expander("Create a pet profile", expanded=True):
@@ -48,6 +55,7 @@ with st.expander("Create a pet profile", expanded=True):
         new_pet = Pet(name=pet_name.strip() or "Unnamed pet", species=species, age=int(age))
         owner.add_pet(new_pet)
         st.session_state.owner = owner
+        owner.save_to_json(DATA_FILE)
         st.success(f"Added {new_pet.name} to {owner.name}'s care plan.")
 
 st.divider()
@@ -56,10 +64,27 @@ st.subheader("Your pets")
 if owner.pets:
     for pet in owner.pets:
         with st.container():
-            st.write(f"- {pet.name} ({pet.species}, age {pet.age})")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"🐾 **{pet.name}** ({pet.species.value}, age {pet.age})")
+            with col2:
+                if pet.health_flags:
+                    health_badge = ", ".join(pet.health_flags)
+                    st.caption(f"Health: {health_badge}")
+            
             if pet.tasks:
+                # Display tasks in a compact table format
+                pet_tasks_data = []
                 for task in pet.tasks:
-                    st.caption(f"  • {task.title} ({task.duration_minutes} min)")
+                    task_type = "💊 Medication" if task.__class__.__name__ == "MedicationTask" else "🍽️ Feeding"
+                    pet_tasks_data.append({
+                        "Type": task_type,
+                        "Task": task.title,
+                        "Duration": f"{task.duration_minutes} min",
+                        "Priority": task.base_priority,
+                        "Status": "✓ Done" if task.is_completed else "○ Pending",
+                    })
+                st.table(pet_tasks_data)
             else:
                 st.caption("  • No tasks yet")
 else:
@@ -99,6 +124,7 @@ if owner.pets:
             )
             selected_pet.add_task(task)
             st.session_state.owner = owner
+            owner.save_to_json(DATA_FILE)
             st.success(f"Added {task.title} for {selected_pet.name}.")
     else:
         dosage = st.text_input("Dosage", value="1 tablet", key="dosage_input")
@@ -114,21 +140,97 @@ if owner.pets:
             )
             selected_pet.add_task(task)
             st.session_state.owner = owner
+            owner.save_to_json(DATA_FILE)
             st.success(f"Added {task.title} for {selected_pet.name}.")
 else:
     st.info("Add a pet first so you can attach tasks to it.")
 
 st.divider()
 
-st.subheader("Build schedule")
-if st.button("Generate schedule", key="generate_schedule_button"):
+st.subheader("🗓️ Live Optimized Care Schedule")
+
+if st.button("⚡ Generate Optimal Daily Schedule", key="generate_schedule_button"):
     if not owner.pets or not any(pet.tasks for pet in owner.pets):
         st.info("Add at least one pet and one task before generating a schedule.")
     else:
-        plan = scheduler.generate_global_plan(owner)
-        if not plan:
-            st.warning("No tasks fit within the current daily time budget.")
+        # Step 1: Expand recurring tasks and collect all contextual items
+        all_contextual_items = scheduler.expand_recurring_schedule_items(owner.get_all_tasks_contextual())
+        
+        # Step 2: Run conflict scanner with verified parameter type
+        active_warnings = scheduler.detect_conflicts(all_contextual_items)
+        
+        # Step 3: Render conflicts prominently at top if any exist
+        if active_warnings:
+            st.warning("⚠️ Scheduling Conflicts Detected!")
+            for conflict_dict in active_warnings:
+                first_item = conflict_dict["first"]
+                second_item = conflict_dict["second"]
+                reason = conflict_dict["reason"]
+                st.error(
+                    f"**{first_item.pet.name}** — {first_item.task.title} at {first_item.task.scheduled_time_label} "
+                    f"and **{second_item.pet.name}** — {second_item.task.title} at {second_item.task.scheduled_time_label} "
+                    f"have a {reason}. Please adjust times to resolve."
+                )
+            st.divider()
+        
+        # Step 4: Generate optimal budget-constrained plan
+        optimized_items = scheduler.generate_global_plan(owner)
+        
+        if not optimized_items:
+            st.info("No tasks could be scheduled within the remaining time budget allocation.")
         else:
-            st.success("Here is the current plan:")
-            for pet, task in plan:
-                st.write(f"- {pet.name}: {task.title} ({task.duration_minutes} min)")
+            # Display metrics dashboard
+            total_selected_time = sum(item.task.duration_minutes for item in optimized_items)
+            remaining_time = owner.daily_time_budget_minutes - total_selected_time
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Daily Time Budget", f"{owner.daily_time_budget_minutes} min")
+            with col2:
+                st.metric("Tasks Selected", f"{len(optimized_items)} tasks", delta=f"{total_selected_time} min used")
+            with col3:
+                st.metric("Time Remaining", f"{remaining_time} min", delta_color="off")
+            
+            scheduled_tasks = [item.task for item in optimized_items if item.task.scheduled_time_value is not None]
+            next_slot = scheduler.find_next_available_slot(scheduled_tasks, duration_minutes=15)
+            if next_slot is not None:
+                st.caption(f"🕒 Suggested next open slot: {next_slot.strftime('%H:%M')} for a 15-minute task")
+
+            st.divider()
+            st.success("✓ Schedule generated successfully!")
+            st.subheader("Your Optimized Care Plan")
+            
+            # Step 5: Render each scheduled item with clean formatting and task-specific details
+            for idx, item in enumerate(optimized_items, start=1):
+                with st.container():
+                    task = item.task
+                    pet = item.pet
+                    
+                    # Clean native formatting
+                    time_label = task.scheduled_time_label
+                    
+                    # Render card header with hierarchical structure
+                    st.markdown(f"### {idx}. **{time_label}** — {task.title} for **{pet.name}**")
+                    st.caption(f"Species: {pet.species.value} | Duration: {task.duration_minutes} min | Priority: {task.base_priority}/10")
+                    
+                    # Build task-specific care instructions using safe attribute inspection
+                    instructions_parts = []
+                    
+                    # Check for Medication task attributes
+                    if hasattr(task, "dosage") and task.dosage:
+                        instructions_parts.append(f"💊 Dosage: {task.dosage}")
+                    if hasattr(task, "dosage_window") and task.dosage_window:
+                        instructions_parts.append(f"⏰ Window: {task.dosage_window}")
+                    
+                    # Check for Feeding task attributes
+                    if hasattr(task, "food_type") and task.food_type:
+                        instructions_parts.append(f"🍽️ Food: {task.food_type}")
+                    if hasattr(task, "amount_grams") and task.amount_grams:
+                        instructions_parts.append(f"⚖️ Amount: {task.amount_grams}g")
+                    
+                    # Display instructions if any were found
+                    if instructions_parts:
+                        care_instruction = " | ".join(instructions_parts)
+                        st.success(f"📋 {care_instruction}")
+                    
+                    st.divider()

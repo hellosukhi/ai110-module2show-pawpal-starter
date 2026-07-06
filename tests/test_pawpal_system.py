@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 import pytest
 
@@ -287,6 +287,32 @@ def test_scheduler_sort_by_time_uses_a_lambda_key_for_hh_mm_strings():
     assert ordered == [early_task, late_task]
 
 
+def test_scheduler_finds_next_available_slot_between_scheduled_tasks():
+    scheduler = SchedulerEngine()
+    first_task = MedicationTask(
+        task_id="med-12",
+        title="Morning medicine",
+        duration_minutes=30,
+        base_priority=8,
+        dosage="1 tablet",
+        dosage_window="morning",
+        scheduled_time="08:00",
+    )
+    second_task = FeedingTask(
+        task_id="feed-17",
+        title="Breakfast feeding",
+        duration_minutes=20,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=200,
+        scheduled_time="09:00",
+    )
+
+    next_slot = scheduler.find_next_available_slot([first_task, second_task], duration_minutes=15)
+
+    assert next_slot == time(8, 30)
+
+
 def test_scheduler_filters_tasks_by_completion_status_and_pet_name():
     scheduler = SchedulerEngine()
     completed_task = FeedingTask(
@@ -356,6 +382,41 @@ def test_scheduler_filters_schedule_items_by_pet_and_completion_status():
     )
 
     assert filtered == [ScheduleItem(first_pet, first_task)]
+
+
+def test_owner_can_persist_state_to_json_and_restore(tmp_path):
+    owner = Owner(name="Jordan", daily_time_budget_minutes=45)
+    pet = Pet(name="Mochi", species="dog", age=3)
+    task = MedicationTask(
+        task_id="med-13",
+        title="Morning medicine",
+        duration_minutes=10,
+        base_priority=8,
+        dosage="1 tablet",
+        dosage_window="morning",
+        scheduled_time="07:30",
+    )
+    pet.add_task(task)
+    owner.add_pet(pet)
+
+    filepath = tmp_path / "data.json"
+    owner.save_to_json(str(filepath))
+    restored_owner = Owner.load_from_json(str(filepath))
+
+    assert restored_owner.name == owner.name
+    assert restored_owner.daily_time_budget_minutes == owner.daily_time_budget_minutes
+    assert len(restored_owner.pets) == 1
+
+    restored_pet = restored_owner.pets[0]
+    assert restored_pet.name == pet.name
+    assert restored_pet.species is PetSpecies.DOG
+    assert len(restored_pet.tasks) == 1
+
+    restored_task = restored_pet.tasks[0]
+    assert isinstance(restored_task, MedicationTask)
+    assert restored_task.title == task.title
+    assert restored_task.dosage == task.dosage
+    assert restored_task.scheduled_time == task.scheduled_time
 
 
 def test_scheduler_expands_recurring_tasks_and_detects_conflicts():
