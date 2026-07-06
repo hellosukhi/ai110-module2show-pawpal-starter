@@ -423,3 +423,91 @@ def test_scheduler_detects_same_time_conflicts_for_different_pets():
     assert len(conflicts) == 1
     assert conflicts[0]["first"].task.task_id == "med-9"
     assert conflicts[0]["second"].task.task_id == "feed-12"
+
+
+def test_sort_tasks_by_time_returns_chronological_order():
+    scheduler = SchedulerEngine()
+    morning_task = MedicationTask(
+        task_id="med-10",
+        title="Morning medicine",
+        duration_minutes=10,
+        base_priority=8,
+        dosage="1 tablet",
+        dosage_window="morning",
+        scheduled_time="07:30",
+    )
+    evening_task = FeedingTask(
+        task_id="feed-13",
+        title="Evening feeding",
+        duration_minutes=10,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=200,
+        scheduled_time="19:00",
+    )
+    unscheduled_task = FeedingTask(
+        task_id="feed-14",
+        title="Unscheduled feeding",
+        duration_minutes=10,
+        base_priority=3,
+        food_type="wet food",
+        amount_grams=150,
+    )
+
+    ordered = scheduler.sort_tasks_by_time([evening_task, unscheduled_task, morning_task])
+
+    assert ordered == [morning_task, evening_task, unscheduled_task]
+
+
+def test_marking_daily_task_complete_creates_next_day_occurrence():
+    task = FeedingTask(
+        task_id="feed-15",
+        title="Daily breakfast",
+        duration_minutes=10,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=200,
+        scheduled_time="08:00",
+        is_recurring=True,
+        frequency="daily",
+    )
+
+    next_task = task.mark_complete()
+
+    assert task.is_completed is True
+    assert next_task is not None
+    assert next_task.task_id == "feed-15-next"
+    assert next_task.is_completed is False
+    assert next_task.due_date == date.today() + timedelta(days=1)
+
+
+def test_scheduler_flags_duplicate_scheduled_times_as_conflicts():
+    scheduler = Scheduler()
+    first_pet = Pet(name="Mochi", species="dog", age=3)
+    second_pet = Pet(name="Luna", species="cat", age=2)
+    first_task = MedicationTask(
+        task_id="med-11",
+        title="Morning medicine",
+        duration_minutes=10,
+        base_priority=8,
+        dosage="1 tablet",
+        dosage_window="morning",
+        scheduled_time="08:00",
+    )
+    second_task = FeedingTask(
+        task_id="feed-16",
+        title="Breakfast feeding",
+        duration_minutes=10,
+        base_priority=4,
+        food_type="dry food",
+        amount_grams=200,
+        scheduled_time="08:00",
+    )
+
+    conflicts = scheduler.detect_conflicts([
+        ScheduleItem(first_pet, first_task),
+        ScheduleItem(second_pet, second_task),
+    ])
+
+    assert len(conflicts) == 1
+    assert conflicts[0]["reason"] == "same scheduled time"

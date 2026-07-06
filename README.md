@@ -65,19 +65,30 @@ Daily budget: 60 min
 
 ## 🧪 Testing PawPal+
 
+Run the full test suite with:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+These tests cover the core scheduling and task-management behaviors in the system, including task completion and recurring-task behavior, pet and owner context handling, scheduling under time-budget constraints, urgency calculation, sorting and filtering, conflict detection, and recurring-task expansion.
 
+Example successful test output:
+
+```text
+============================= test session starts ==============================
+platform darwin -- Python 3.13.0, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/star/ai110-module2show-pawpal-starter
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collected 19 items
+
+tests/test_pawpal_system.py ...................                          [100%]
+
+============================== 19 passed in 0.03s ==============================
 ```
-# Paste your pytest output here
-```
+
+Confidence Level: ★★★★★
 
 ## 📐 Smarter Scheduling
 
